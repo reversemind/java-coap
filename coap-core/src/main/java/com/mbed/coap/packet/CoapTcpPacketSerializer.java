@@ -1,3 +1,18 @@
+/**
+ * Copyright (C) 2011-2017 ARM Limited. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.mbed.coap.packet;
 
 import com.mbed.coap.exception.CoapException;
@@ -46,9 +61,16 @@ public final class CoapTcpPacketSerializer {
             cp.setToken(inputStream.readBytes(tokenLen));
 
             //Options
-            HeaderOptions options = new HeaderOptions();
-            boolean hasPayloadMarker = options.deserialize(inputStream);
-            cp.setHeaderOptions(options);
+            boolean hasPayloadMarker;
+            if (cp.getCode() != null && cp.getCode().isSignaling()) {
+                SignalingOptions options = new SignalingOptions();
+                hasPayloadMarker = options.deserialize(inputStream, cp.getCode());
+                cp.setSignalingOptions(options);
+            } else {
+                HeaderOptions options = new HeaderOptions();
+                hasPayloadMarker = options.deserialize(inputStream);
+                cp.setHeaderOptions(options);
+            }
 
             //Payload
             if (hasPayloadMarker) {
@@ -132,38 +154,20 @@ public final class CoapTcpPacketSerializer {
             os.write(tempByte);
 
             //Extended Length
-            if (plLen >= 13 && plLen < 269) {
-                os.write(plLen - 13);
-            } else if (plLen >= 269 && plLen < 65805) {
-                os.write((0xFF00 & (plLen - 269)) >> 8);
-                os.write(0x00FF & (plLen - 269));
-            } else if (plLen >= 65805) {
-                os.write((0xFF000000 & (plLen - 65805)) >> 24);
-                os.write((0x00FF0000 & (plLen - 65805)) >> 16);
-                os.write((0x0000FF00 & (plLen - 65805)) >> 8);
-                os.write(0x000000FF & (plLen - 65805));
-            }
+            writeExtendedLength(os, plLen);
 
             // Code
-            Code code = coapPacket.getCode();
-            Method method = coapPacket.getMethod();
-
-            if (code != null && method != null) {
-                throw new CoapException("Forbidden operation: 'code' and 'method' use at a same time");
-            }
-            if (code != null) {
-                os.write(code.getCoapCode());
-            } else if (method != null) {
-                os.write(method.getCode());
-            } else { //no code or method used
-                os.write(0);
-            }
+            Code code = writeCode(os, coapPacket);
 
             //TKL Bytes
             os.write(coapPacket.getToken());
 
             //Options
-            coapPacket.headers().serialize(os);
+            if (code != null && code.isSignaling()) {
+                coapPacket.signalingOptions().serialize(os);
+            } else {
+                coapPacket.headers().serialize(os);
+            }
 
             //Payload
             if (coapPacket.getPayload() != null && coapPacket.getPayload().length > 0) {
@@ -176,6 +180,37 @@ public final class CoapTcpPacketSerializer {
         }
     }
 
+
+    private static Code writeCode(OutputStream os, CoapPacket coapPacket) throws CoapException, IOException {
+        Code code = coapPacket.getCode();
+        Method method = coapPacket.getMethod();
+
+        if (code != null && method != null) {
+            throw new CoapException("Forbidden operation: 'code' and 'method' use at a same time");
+        }
+        if (code != null) {
+            os.write(code.getCoapCode());
+        } else if (method != null) {
+            os.write(method.getCode());
+        } else { //no code or method used
+            os.write(0);
+        }
+        return code;
+    }
+
+    private static void writeExtendedLength(OutputStream os, int plLen) throws IOException {
+        if (plLen >= 13 && plLen < 269) {
+            os.write(plLen - 13);
+        } else if (plLen >= 269 && plLen < 65805) {
+            os.write((0xFF00 & (plLen - 269)) >> 8);
+            os.write(0x00FF & (plLen - 269));
+        } else if (plLen >= 65805) {
+            os.write((0xFF000000 & (plLen - 65805)) >> 24);
+            os.write((0x00FF0000 & (plLen - 65805)) >> 16);
+            os.write((0x0000FF00 & (plLen - 65805)) >> 8);
+            os.write(0x000000FF & (plLen - 65805));
+        }
+    }
 
     private static class StrictInputStream extends InputStream {
         private final InputStream inputStream;
@@ -215,4 +250,5 @@ public final class CoapTcpPacketSerializer {
             return inputStream.available();
         }
     }
+
 }

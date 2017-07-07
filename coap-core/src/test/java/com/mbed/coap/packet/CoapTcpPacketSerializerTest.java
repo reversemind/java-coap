@@ -1,3 +1,18 @@
+/**
+ * Copyright (C) 2011-2017 ARM Limited. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.mbed.coap.packet;
 
 import static org.assertj.core.api.Assertions.*;
@@ -146,7 +161,27 @@ public class CoapTcpPacketSerializerTest extends CoapPacketTestBase {
                     () -> CoapTcpPacketSerializer.deserialize(null, new ByteArrayInputStream(tooShortRawCp))
             ).hasCauseExactlyInstanceOf(EOFException.class);
         }
+    }
 
+    @Test
+    public void coapOverTcpSignaling() throws CoapException {
+        CoapPacket cp = new CoapPacket(null, null, "", null);
+        cp.setCode(Code.C701_CSM);
+        cp.signalingOptions().setMaxMessageSize(7);
+        cp.signalingOptions().setBlockWiseTransfer(true);
+
+        byte[] rawCp = CoapTcpPacketSerializer.serialize(cp);
+        CoapPacket cp2 = CoapTcpPacketSerializer.deserialize(null, new ByteArrayInputStream(rawCp));
+
+        System.out.println(cp);
+        System.out.println(cp2);
+        assertArrayEquals(rawCp, CoapTcpPacketSerializer.serialize(cp2));
+        assertEquals(Code.C701_CSM, cp2.getCode());
+        assertEquals(null, cp2.getMessageType());
+        assertEquals(7, cp2.signalingOptions().getMaxMessageSize().intValue());
+        assertTrue(cp2.signalingOptions().getBlockWiseTransfer());
+
+        assertSimilar(cp, cp2);
     }
 
     private void assertSimplePacketSerializationAndDeserilization(byte[] token, byte[] payload) throws CoapException {

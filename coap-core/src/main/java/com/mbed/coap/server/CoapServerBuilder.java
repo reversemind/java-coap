@@ -17,6 +17,7 @@ package com.mbed.coap.server;
 
 import com.mbed.coap.packet.BlockSize;
 import com.mbed.coap.server.internal.CoapServerBlocks;
+import com.mbed.coap.server.internal.CoapServerForTcp;
 import com.mbed.coap.server.internal.CoapServerForUdp;
 import com.mbed.coap.server.internal.CoapTransaction;
 import com.mbed.coap.transmission.TransmissionTimeout;
@@ -57,6 +58,10 @@ public class CoapServerBuilder {
 
     public static CoapServer newCoapServer(CoapTransport transport) {
         return new CoapServerBuilder().transport(transport).build();
+    }
+
+    public static CoapServer newCoapServerForTcp(CoapTransport transport) {
+        return new CoapServerForTcp(transport);
     }
 
     public CoapServerBuilder transport(int port) {
@@ -149,8 +154,10 @@ public class CoapServerBuilder {
         return this;
     }
 
-    public CoapServer start() throws IOException {
-        return build().start();
+    public CoapServerForUdp start() throws IOException {
+        CoapServerForUdp coapServer = build();
+        coapServer.start();
+        return coapServer;
     }
 
     public CoapServerForUdp build() {

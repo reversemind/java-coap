@@ -277,7 +277,7 @@ public abstract class CoapServer implements CoapReceiver {
         handleNotProcessedMessage(packet);
     }
 
-    private boolean handlePing(CoapPacket packet) {
+    protected boolean handlePing(CoapPacket packet) {
         if (packet.getCode() == null && packet.getMethod() == null && packet.getMessageType() == MessageType.Confirmable) {
             LOGGER.debug("CoAP ping received.");
             CoapPacket resp = packet.createResponse(null);

@@ -108,7 +108,7 @@ public class DeviceEmulator {
 
             SSLContext sslContext = sslContextFromKeystore(keystoreFile, "secret".toCharArray());
 
-            coapTransport = new SSLSocketClientTransport(new InetSocketAddress(uri.getHost(), uri.getPort()), sslContext.getSocketFactory());
+            coapTransport = new SSLSocketClientTransport(new InetSocketAddress(uri.getHost(), uri.getPort()), sslContext.getSocketFactory(), false);
         } else {
             throw new IllegalArgumentException("Protocol not supported: " + uri.getScheme());
         }

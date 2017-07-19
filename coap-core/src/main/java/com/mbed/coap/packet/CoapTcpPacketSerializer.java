@@ -62,15 +62,9 @@ public final class CoapTcpPacketSerializer {
 
             //Options
             boolean hasPayloadMarker;
-            if (cp.getCode() != null && cp.getCode().isSignaling()) {
-                SignalingOptions options = new SignalingOptions();
-                hasPayloadMarker = options.deserialize(inputStream, cp.getCode());
-                cp.setSignalingOptions(options);
-            } else {
-                HeaderOptions options = new HeaderOptions();
-                hasPayloadMarker = options.deserialize(inputStream);
-                cp.setHeaderOptions(options);
-            }
+            HeaderOptions options = new HeaderOptions();
+            hasPayloadMarker = options.deserialize(inputStream, cp.getCode());
+            cp.setHeaderOptions(options);
 
             //Payload
             if (hasPayloadMarker) {
@@ -157,17 +151,13 @@ public final class CoapTcpPacketSerializer {
             writeExtendedLength(os, plLen);
 
             // Code
-            Code code = writeCode(os, coapPacket);
+            CoapPacket.writeCode(os, coapPacket);
 
             //TKL Bytes
             os.write(coapPacket.getToken());
 
             //Options
-            if (code != null && code.isSignaling()) {
-                coapPacket.signalingOptions().serialize(os);
-            } else {
-                coapPacket.headers().serialize(os);
-            }
+            coapPacket.headers().serialize(os);
 
             //Payload
             if (coapPacket.getPayload() != null && coapPacket.getPayload().length > 0) {
@@ -180,23 +170,6 @@ public final class CoapTcpPacketSerializer {
         }
     }
 
-
-    private static Code writeCode(OutputStream os, CoapPacket coapPacket) throws CoapException, IOException {
-        Code code = coapPacket.getCode();
-        Method method = coapPacket.getMethod();
-
-        if (code != null && method != null) {
-            throw new CoapException("Forbidden operation: 'code' and 'method' use at a same time");
-        }
-        if (code != null) {
-            os.write(code.getCoapCode());
-        } else if (method != null) {
-            os.write(method.getCode());
-        } else { //no code or method used
-            os.write(0);
-        }
-        return code;
-    }
 
     private static void writeExtendedLength(OutputStream os, int plLen) throws IOException {
         if (plLen >= 13 && plLen < 269) {

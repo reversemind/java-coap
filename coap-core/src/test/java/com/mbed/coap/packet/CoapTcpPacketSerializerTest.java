@@ -104,7 +104,7 @@ public class CoapTcpPacketSerializerTest extends CoapPacketTestBase {
         assertSimplePacketSerializationAndDeserilization(token, payload);
     }
 
-    @Test(expected = CoapException.class)
+    @Test(expected = IllegalStateException.class)
     public void bothMethodAndCodeUsed() throws CoapException {
         CoapPacket cp = new CoapPacket(Method.DELETE, null, "", null);
         cp.setCode(Code.C202_DELETED);
@@ -167,8 +167,11 @@ public class CoapTcpPacketSerializerTest extends CoapPacketTestBase {
     public void coapOverTcpSignaling() throws CoapException {
         CoapPacket cp = new CoapPacket(null, null, "", null);
         cp.setCode(Code.C701_CSM);
-        cp.signalingOptions().setMaxMessageSize(7);
-        cp.signalingOptions().setBlockWiseTransfer(true);
+        SignalingOptions sign = new SignalingOptions();
+        sign.setMaxMessageSize(7);
+        sign.setBlockWiseTransfer(true);
+        cp.headers().putSignallingOptions(sign);
+        cp.headers().setMaxAge(100L);
 
         byte[] rawCp = CoapTcpPacketSerializer.serialize(cp);
         CoapPacket cp2 = CoapTcpPacketSerializer.deserialize(null, new ByteArrayInputStream(rawCp));
@@ -178,8 +181,9 @@ public class CoapTcpPacketSerializerTest extends CoapPacketTestBase {
         assertArrayEquals(rawCp, CoapTcpPacketSerializer.serialize(cp2));
         assertEquals(Code.C701_CSM, cp2.getCode());
         assertEquals(null, cp2.getMessageType());
-        assertEquals(7, cp2.signalingOptions().getMaxMessageSize().intValue());
-        assertTrue(cp2.signalingOptions().getBlockWiseTransfer());
+        assertEquals(7, cp2.headers().toSignallingOptions(Code.C701_CSM).getMaxMessageSize().intValue());
+        assertTrue(cp2.headers().toSignallingOptions(Code.C701_CSM).getBlockWiseTransfer());
+        assertEquals(100, cp2.headers().getMaxAgeValue());
 
         assertSimilar(cp, cp2);
     }

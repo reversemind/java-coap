@@ -15,19 +15,11 @@
  */
 package com.mbed.coap.packet;
 
-import com.mbed.coap.exception.CoapMessageFormatException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-
 /**
  * Implements CoAP signaling options from draft-ietf-core-coap-tcp-tls-09.
  */
 @SuppressWarnings({"PMD.CyclomaticComplexity"})
-public class SignalingOptions extends AbstractOptions implements Serializable {
+public class SignalingOptions {
 
     private static final byte MAX_MESSAGE_SIZE = 2;     //7.01
     private static final byte BLOCK_WISE_TRANSFER = 4;  //7.01
@@ -39,11 +31,12 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
     private Integer maxMessageSize;
     private Boolean blockWiseTransfer;
     private Boolean custody;
-    private List<String> alternativeAddresses; //TODO: Better type than string?
+    //    private List<String> alternativeAddresses; //TODO: Better type than string?
+    private String alternativeAddress;
     private Integer holdOff;
     private Integer badCsmOption;
 
-    private boolean parseOption(int type, byte[] data, Code code) {
+    public SignalingOptions parse(int type, byte[] data, Code code) {
         if (code == Code.C701_CSM && type == MAX_MESSAGE_SIZE) {
             setMaxMessageSize(DataConvertingUtility.readVariableULong(data).intValue());
         } else if (code == Code.C701_CSM && type == BLOCK_WISE_TRANSFER) {
@@ -54,95 +47,49 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
             if (data.length < 1 || data.length > 255) {
                 throw new IllegalArgumentException("Illegal Alternative-Address size: " + data.length);
             }
-            if (alternativeAddresses == null) {
-                alternativeAddresses = new ArrayList<>();
-            }
-            alternativeAddresses.add(DataConvertingUtility.decodeToString(data));
+
+            alternativeAddress = DataConvertingUtility.decodeToString(data);
 
         } else if (code == Code.C704_RELEASE && type == HOLD_OFF) {
             setHoldOff(DataConvertingUtility.readVariableULong(data).intValue());
         } else if (code == Code.C705_ABORT && type == BAD_CSM_OPTION) {
             setBadCsmOption(DataConvertingUtility.readVariableULong(data).intValue());
-        } else {
-            return false;
         }
-        return true;
+        return this;
     }
 
-    @Override
-    List<RawOption> getRawOptions() {
-        List<RawOption> l = new LinkedList<>();
+    byte[] serializeOption2() {
 
         if (maxMessageSize != null) {
-            l.add(RawOption.fromUint(MAX_MESSAGE_SIZE, maxMessageSize.longValue()));
-        }
-        if (blockWiseTransfer != null && blockWiseTransfer) {
-            l.add(RawOption.fromEmpty(BLOCK_WISE_TRANSFER));
+            return DataConvertingUtility.convertVariableUInt(maxMessageSize.longValue());
         }
         if (custody != null && custody) {
-            l.add(RawOption.fromEmpty(CUSTODY));
+            return new byte[]{};
         }
-        if (alternativeAddresses != null) {
-            String[] addressArr = new String[alternativeAddresses.size()];
-            for (int i = 0; i < alternativeAddresses.size(); i++) {
-                addressArr[i] = alternativeAddresses.get(i);
-            }
 
-            l.add(RawOption.fromString(ALTERNATIVE_ADDRESS, addressArr));
-        }
-        if (holdOff != null) {
-            l.add(RawOption.fromUint(HOLD_OFF, holdOff.longValue()));
+        if (alternativeAddress != null) {
+            return alternativeAddress.getBytes();
         }
         if (badCsmOption != null) {
-            l.add(RawOption.fromUint(BAD_CSM_OPTION, badCsmOption.longValue()));
+            return DataConvertingUtility.convertVariableUInt(badCsmOption.longValue());
         }
-        return l;
+        return null;
     }
 
-    /**
-     * De-serializes CoAP signaling options.
-     *
-     * @param inputStream input stream to de-serialize from
-     * @param code CoAP signaling code
-     * @return true if if PayloadMarker was found
-     */
-    public boolean deserialize(InputStream inputStream, Code code) throws IOException, CoapMessageFormatException {
-
-        int headerOptNum = 0;
-        while (inputStream.available() > 0) {
-            OptionMeta option = getOptionMeta(inputStream);
-            if (option == null) {
-                return true;
-            }
-            headerOptNum += option.delta;
-            byte[] headerOptData = new byte[option.length];
-            inputStream.read(headerOptData);
-            put(headerOptNum, headerOptData, code);
-
+    byte[] serializeOption4() {
+        if (blockWiseTransfer != null && blockWiseTransfer) {
+            return new byte[]{};
         }
-        //end of stream
-        return false;
 
-    }
-
-    /**
-     * Adds signaling option
-     *
-     * @param optionNumber option number
-     * @param data option value as byte array
-     * @param code CoAP signaling code
-     * @return true if header type is a known, false for unknown header option
-     */
-    public final boolean put(int optionNumber, byte[] data, Code code) {
-        if (parseOption(optionNumber, data, code)) {
-            return true;
+        if (holdOff != null) {
+            return DataConvertingUtility.convertVariableUInt(holdOff.longValue());
         }
-        return putUnrecognized(optionNumber, data);
-
+        return null;
     }
 
     @Override
-    void toString(StringBuilder sb) {
+    public String toString() {
+        StringBuilder sb = new StringBuilder(32);
         if (maxMessageSize != null) {
             sb.append(" Max-Message-Size:").append(maxMessageSize);
         }
@@ -152,15 +99,9 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
         if (custody != null && custody) {
             sb.append(" Custody");
         }
-        if (alternativeAddresses != null) {
-            sb.append(" Alternative-Addresses:[");
-            for (int i = 0; i < alternativeAddresses.size(); i++) {
-                if (i > 0) {
-                    sb.append(',');
-                }
-                sb.append(alternativeAddresses.get(i));
-            }
-            sb.append(']');
+        if (alternativeAddress != null) {
+            sb.append(" Alt-adr:");
+            sb.append(alternativeAddress);
         }
         if (holdOff != null) {
             sb.append(" Hold-Off:").append(holdOff);
@@ -168,6 +109,7 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
         if (badCsmOption != null) {
             sb.append(" Bad-CSM-Option:").append(badCsmOption);
         }
+        return sb.toString();
     }
 
     public Integer getMaxMessageSize() {
@@ -175,7 +117,7 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
     }
 
     public void setMaxMessageSize(Integer maxMessageSize) {
-        if (custody != null || alternativeAddresses != null || holdOff != null || badCsmOption != null) {
+        if (custody != null || alternativeAddress != null || holdOff != null || badCsmOption != null) {
             throw new IllegalStateException("Other than 7.01 specific signaling option already set");
         }
         if (maxMessageSize != null && (maxMessageSize < 0 || maxMessageSize > 0xFFFF)) {
@@ -189,7 +131,7 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
     }
 
     public void setBlockWiseTransfer(Boolean blockWiseTransfer) {
-        if (custody != null || alternativeAddresses != null || holdOff != null || badCsmOption != null) {
+        if (custody != null || alternativeAddress != null || holdOff != null || badCsmOption != null) {
             throw new IllegalStateException("Other than 7.01 specific signaling option already set");
         }
         this.blockWiseTransfer = blockWiseTransfer;
@@ -200,30 +142,22 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
     }
 
     public void setCustody(Boolean custody) {
-        if (maxMessageSize != null || blockWiseTransfer != null || alternativeAddresses != null || holdOff != null || badCsmOption != null) {
+        if (maxMessageSize != null || blockWiseTransfer != null || alternativeAddress != null || holdOff != null || badCsmOption != null) {
             throw new IllegalStateException("Other than 7.02 or 7.03 specific signaling option already set");
         }
         this.custody = custody;
     }
 
-    /**
-     * @return comma separated list of alternative addresses as string
-     */
-    public List<String> getAlternativeAddresses() {
-        return alternativeAddresses;
+    public String getAlternativeAddress() {
+        return alternativeAddress;
     }
 
-    /**
-     * Set alternative addresses
-     *
-     * @param alternativeAddresses comma separated list as string
-     */
-    public void setAlternativeAddresses(List<String> alternativeAddresses) {
+    public void setAlternativeAddress(String alternativeAddress) {
         if (maxMessageSize != null || blockWiseTransfer != null || custody != null || badCsmOption != null) {
             throw new IllegalStateException("Other than 7.04 specific signaling option already set");
         }
 
-        this.alternativeAddresses = alternativeAddresses;
+        this.alternativeAddress = alternativeAddress;
     }
 
     public Integer getHoldOff() {
@@ -245,7 +179,7 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
     }
 
     public void setBadCsmOption(Integer badCsmOption) {
-        if (maxMessageSize != null || blockWiseTransfer != null || custody != null || alternativeAddresses != null || holdOff != null) {
+        if (maxMessageSize != null || blockWiseTransfer != null || custody != null || alternativeAddress != null || holdOff != null) {
             throw new IllegalStateException("Other than 7.05 specific signaling option already set");
         }
         this.badCsmOption = badCsmOption;
@@ -259,41 +193,33 @@ public class SignalingOptions extends AbstractOptions implements Serializable {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
 
         SignalingOptions that = (SignalingOptions) o;
 
-        if (this.maxMessageSize != that.maxMessageSize && (this.maxMessageSize == null || !this.maxMessageSize.equals(that.maxMessageSize))) {
+        if (maxMessageSize != null ? !maxMessageSize.equals(that.maxMessageSize) : that.maxMessageSize != null) {
             return false;
         }
-        if (this.blockWiseTransfer != that.blockWiseTransfer && (this.blockWiseTransfer == null || !this.blockWiseTransfer.equals(that.blockWiseTransfer))) {
+        if (blockWiseTransfer != null ? !blockWiseTransfer.equals(that.blockWiseTransfer) : that.blockWiseTransfer != null) {
             return false;
         }
-        if (this.custody != that.custody && (this.custody == null || !this.custody.equals(that.custody))) {
+        if (custody != null ? !custody.equals(that.custody) : that.custody != null) {
             return false;
         }
-        if (this.alternativeAddresses != that.alternativeAddresses && (this.alternativeAddresses == null || !this.alternativeAddresses.equals(that.alternativeAddresses))) {
+        if (alternativeAddress != null ? !alternativeAddress.equals(that.alternativeAddress) : that.alternativeAddress != null) {
             return false;
         }
-        if (this.holdOff != that.holdOff && (this.holdOff == null || !this.holdOff.equals(that.holdOff))) {
+        if (holdOff != null ? !holdOff.equals(that.holdOff) : that.holdOff != null) {
             return false;
         }
-        if (this.badCsmOption != that.badCsmOption && (this.badCsmOption == null || !this.badCsmOption.equals(that.badCsmOption))) {
-            return false;
-        }
-        return true;
-
+        return badCsmOption != null ? badCsmOption.equals(that.badCsmOption) : that.badCsmOption == null;
     }
 
     @Override
     public int hashCode() {
-        int result = super.hashCode();
-        result = 31 * result + (maxMessageSize != null ? maxMessageSize.hashCode() : 0);
+        int result = maxMessageSize != null ? maxMessageSize.hashCode() : 0;
         result = 31 * result + (blockWiseTransfer != null ? blockWiseTransfer.hashCode() : 0);
         result = 31 * result + (custody != null ? custody.hashCode() : 0);
-        result = 31 * result + (alternativeAddresses != null ? alternativeAddresses.hashCode() : 0);
+        result = 31 * result + (alternativeAddress != null ? alternativeAddress.hashCode() : 0);
         result = 31 * result + (holdOff != null ? holdOff.hashCode() : 0);
         result = 31 * result + (badCsmOption != null ? badCsmOption.hashCode() : 0);
         return result;

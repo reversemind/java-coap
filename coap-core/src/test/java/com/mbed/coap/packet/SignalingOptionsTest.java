@@ -17,11 +17,10 @@ package com.mbed.coap.packet;
 
 import static org.junit.Assert.*;
 import com.mbed.coap.exception.CoapException;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
+import nl.jqno.equalsverifier.EqualsVerifier;
+import nl.jqno.equalsverifier.Warning;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -33,9 +32,8 @@ public class SignalingOptionsTest {
     public void testEmpty() throws IOException, CoapException {
         SignalingOptions options = new SignalingOptions();
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        options.serialize(baos);
-        assertEquals(0, baos.size());
+        assertNull(options.serializeOption2());
+        assertNull(options.serializeOption4());
     }
 
     @Test
@@ -44,15 +42,18 @@ public class SignalingOptionsTest {
         opt.setMaxMessageSize(4);
         opt.setBlockWiseTransfer(true);
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        opt.serialize(baos);
-
-        SignalingOptions opt2 = new SignalingOptions();
-        opt2.deserialize(new ByteArrayInputStream(baos.toByteArray()), Code.C701_CSM);
+        SignalingOptions opt2 = serializeAndDeserialize(opt, Code.C701_CSM);
 
         assertEquals(opt, opt2);
         assertEquals(4, opt2.getMaxMessageSize().intValue());
         assertTrue(opt2.getBlockWiseTransfer());
+    }
+
+    private SignalingOptions serializeAndDeserialize(SignalingOptions opt, Code c701Csm) {
+        SignalingOptions opt2 = new SignalingOptions();
+        opt2.parse(2, opt.serializeOption2(), c701Csm);
+        opt2.parse(4, opt.serializeOption4(), c701Csm);
+        return opt2;
     }
 
     @Test
@@ -60,11 +61,7 @@ public class SignalingOptionsTest {
         SignalingOptions opt = new SignalingOptions();
         opt.setCustody(true);
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        opt.serialize(baos);
-
-        SignalingOptions opt2 = new SignalingOptions();
-        opt2.deserialize(new ByteArrayInputStream(baos.toByteArray()), Code.C702_PING);
+        SignalingOptions opt2 = serializeAndDeserialize(opt, Code.C702_PING);
 
         assertEquals(opt, opt2);
         assertTrue(opt2.getCustody());
@@ -73,21 +70,13 @@ public class SignalingOptionsTest {
     @Test
     public void testRelease() throws IOException, CoapException {
         SignalingOptions opt = new SignalingOptions();
-        opt.setAlternativeAddresses(Arrays.asList("0.0.0.0:1", "0.0.0.0:2", "0.0.0.0:3"));
+        opt.setAlternativeAddress("0.0.0.0:1");
         opt.setHoldOff(3);
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        opt.serialize(baos);
-
-        SignalingOptions opt2 = new SignalingOptions();
-        opt2.deserialize(new ByteArrayInputStream(baos.toByteArray()), Code.C704_RELEASE);
+        SignalingOptions opt2 = serializeAndDeserialize(opt, Code.C704_RELEASE);
 
         assertEquals(opt, opt2);
-        assertEquals(3, opt2.getAlternativeAddresses().size());
-        assertEquals("0.0.0.0:1", opt2.getAlternativeAddresses().get(0));
-        assertEquals("0.0.0.0:2", opt2.getAlternativeAddresses().get(1));
-        assertEquals("0.0.0.0:3", opt2.getAlternativeAddresses().get(2));
-        assertEquals(3, opt2.getHoldOff().intValue());
+        assertEquals("0.0.0.0:1", opt2.getAlternativeAddress());
     }
 
     @Test
@@ -95,11 +84,7 @@ public class SignalingOptionsTest {
         SignalingOptions opt = new SignalingOptions();
         opt.setBadCsmOption(6);
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        opt.serialize(baos);
-
-        SignalingOptions opt2 = new SignalingOptions();
-        opt2.deserialize(new ByteArrayInputStream(baos.toByteArray()), Code.C705_ABORT);
+        SignalingOptions opt2 = serializeAndDeserialize(opt, Code.C705_ABORT);
 
         assertEquals(opt, opt2);
         assertEquals(6, opt2.getBadCsmOption().intValue());
@@ -112,21 +97,21 @@ public class SignalingOptionsTest {
     public void testPutCSMOption() throws IOException, CoapException {
         SignalingOptions options = new SignalingOptions();
 
-        options.put(2, ByteBuffer.allocate(4).putInt(2).array(), Code.C701_CSM);
+        options.parse(2, ByteBuffer.allocate(4).putInt(2).array(), Code.C701_CSM);
 
         assertEquals(2, options.getMaxMessageSize().intValue());
         assertEquals(null, options.getBlockWiseTransfer());
         assertEquals(null, options.getCustody());
-        assertEquals(null, options.getAlternativeAddresses());
+        assertEquals(null, options.getAlternativeAddress());
         assertEquals(null, options.getHoldOff());
         assertEquals(null, options.getBadCsmOption());
 
-        options.put(4, null, Code.C701_CSM);
+        options.parse(4, null, Code.C701_CSM);
 
         assertEquals(2, options.getMaxMessageSize().intValue());
         assertTrue(options.getBlockWiseTransfer());
         assertEquals(null, options.getCustody());
-        assertEquals(null, options.getAlternativeAddresses());
+        assertEquals(null, options.getAlternativeAddress());
         assertEquals(null, options.getHoldOff());
         assertEquals(null, options.getBadCsmOption());
 
@@ -136,19 +121,19 @@ public class SignalingOptionsTest {
         //Try putting non csm specific option
         expectedEx.expect(IllegalStateException.class);
         expectedEx.expectMessage("Other than 7.04 specific signaling option already set");
-        options.put(4, ByteBuffer.allocate(1).put((byte) 5).array(), Code.C704_RELEASE);
+        options.parse(4, ByteBuffer.allocate(1).put((byte) 5).array(), Code.C704_RELEASE);
     }
 
     @Test
     public void testPutPingOption() throws IOException, CoapException {
         SignalingOptions options = new SignalingOptions();
 
-        options.put(2, null, Code.C702_PING);
+        options.parse(2, null, Code.C702_PING);
 
         assertEquals(null, options.getMaxMessageSize());
         assertEquals(null, options.getBlockWiseTransfer());
         assertTrue(options.getCustody());
-        assertEquals(null, options.getAlternativeAddresses());
+        assertEquals(null, options.getAlternativeAddress());
         assertEquals(null, options.getHoldOff());
         assertEquals(null, options.getBadCsmOption());
 
@@ -159,12 +144,12 @@ public class SignalingOptionsTest {
         options.setCustody(false);
         assertFalse(options.getCustody());
 
-        options.put(2, null, Code.C703_PONG);
+        options.parse(2, null, Code.C703_PONG);
 
         assertEquals(null, options.getMaxMessageSize());
         assertEquals(null, options.getBlockWiseTransfer());
         assertTrue(options.getCustody());
-        assertEquals(null, options.getAlternativeAddresses());
+        assertEquals(null, options.getAlternativeAddress());
         assertEquals(null, options.getHoldOff());
         assertEquals(null, options.getBadCsmOption());
     }
@@ -173,7 +158,7 @@ public class SignalingOptionsTest {
     public void testPutReleaseOption() throws IOException, CoapException {
         SignalingOptions options = new SignalingOptions();
 
-        options.put(2, "127.0.0.1:5555".getBytes(), Code.C704_RELEASE);
+        options.parse(2, "127.0.0.1:5555".getBytes(), Code.C704_RELEASE);
         System.out.println(options);
 
         assertEquals(null, options.getMaxMessageSize());
@@ -181,25 +166,22 @@ public class SignalingOptionsTest {
         assertEquals(null, options.getCustody());
         assertEquals(null, options.getHoldOff());
         assertEquals(null, options.getBadCsmOption());
-        assertEquals(1, options.getAlternativeAddresses().size());
-        assertEquals("127.0.0.1:5555", options.getAlternativeAddresses().get(0));
+        assertEquals("127.0.0.1:5555", options.getAlternativeAddress());
 
-        options.put(2, "127.0.0.1:7777".getBytes(), Code.C704_RELEASE);
+        //        options.parse(2, "127.0.0.1:7777".getBytes(), Code.C704_RELEASE);
+        //
+        //        assertEquals(2, options.getAlternativeAddresses().size());
+        //        assertEquals("127.0.0.1:5555", options.getAlternativeAddresses().get(0));
+        //        assertEquals("127.0.0.1:7777", options.getAlternativeAddresses().get(1));
+        //        assertEquals(null, options.getMaxMessageSize());
+        //        assertEquals(null, options.getBlockWiseTransfer());
+        //        assertEquals(null, options.getCustody());
+        //        assertEquals(null, options.getHoldOff());
+        //        assertEquals(null, options.getBadCsmOption());
 
-        assertEquals(2, options.getAlternativeAddresses().size());
-        assertEquals("127.0.0.1:5555", options.getAlternativeAddresses().get(0));
-        assertEquals("127.0.0.1:7777", options.getAlternativeAddresses().get(1));
-        assertEquals(null, options.getMaxMessageSize());
-        assertEquals(null, options.getBlockWiseTransfer());
-        assertEquals(null, options.getCustody());
-        assertEquals(null, options.getHoldOff());
-        assertEquals(null, options.getBadCsmOption());
+        options.parse(4, ByteBuffer.allocate(1).put((byte) 5).array(), Code.C704_RELEASE);
 
-        options.put(4, ByteBuffer.allocate(1).put((byte) 5).array(), Code.C704_RELEASE);
-
-        assertEquals(2, options.getAlternativeAddresses().size());
-        assertEquals("127.0.0.1:5555", options.getAlternativeAddresses().get(0));
-        assertEquals("127.0.0.1:7777", options.getAlternativeAddresses().get(1));
+        assertEquals("127.0.0.1:5555", options.getAlternativeAddress());
         assertEquals(null, options.getMaxMessageSize());
         assertEquals(null, options.getBlockWiseTransfer());
         assertEquals(null, options.getCustody());
@@ -207,40 +189,32 @@ public class SignalingOptionsTest {
         assertEquals(null, options.getBadCsmOption());
 
         System.out.println(options);
-        assertEquals(" Alternative-Addresses:[127.0.0.1:5555,127.0.0.1:7777] Hold-Off:5", options.toString());
+        assertEquals(" Alt-adr:127.0.0.1:5555 Hold-Off:5", options.toString());
 
-        expectedEx.expect(IllegalArgumentException.class);
-        expectedEx.expectMessage("Illegal Alternative-Address size: 300");
-        options.put(2,
-                ("127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh" +
-                        "127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh" +
-                        "127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh").getBytes(),
-                Code.C704_RELEASE);
+        //        expectedEx.expect(IllegalArgumentException.class);
+        //        expectedEx.expectMessage("Illegal Alternative-Address size: 300");
+        //        options.put(2,
+        //                ("127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh" +
+        //                        "127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh" +
+        //                        "127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh127.0.0.1:7777asdfgh").getBytes(),
+        //                Code.C704_RELEASE);
     }
 
     @Test
     public void testPutAbortOption() throws IOException, CoapException {
         SignalingOptions options = new SignalingOptions();
 
-        options.put(2, ByteBuffer.allocate(1).put((byte) 7).array(), Code.C705_ABORT);
+        options.parse(2, ByteBuffer.allocate(1).put((byte) 7).array(), Code.C705_ABORT);
 
         assertEquals(null, options.getMaxMessageSize());
         assertEquals(null, options.getBlockWiseTransfer());
         assertEquals(null, options.getCustody());
-        assertEquals(null, options.getAlternativeAddresses());
+        assertEquals(null, options.getAlternativeAddress());
         assertEquals(null, options.getHoldOff());
         assertEquals(7, options.getBadCsmOption().intValue());
 
         System.out.println(options);
         assertEquals(" Bad-CSM-Option:7", options.toString());
-    }
-
-    @Test
-    public void testPutUnknownOption() throws IOException, CoapException {
-        SignalingOptions options = new SignalingOptions();
-
-        options.put(7, ByteBuffer.allocate(1).put((byte) 7).array(), Code.C705_ABORT);
-        assertEquals(1, options.unrecognizedOptions.size());
     }
 
     @Test
@@ -316,7 +290,7 @@ public class SignalingOptionsTest {
 
         expectedEx.expect(IllegalStateException.class);
         expectedEx.expectMessage("Other than 7.04 specific signaling option already set");
-        options.setAlternativeAddresses(null);
+        options.setAlternativeAddress(null);
     }
 
     @Test
@@ -339,4 +313,10 @@ public class SignalingOptionsTest {
         options.setBadCsmOption(2);
     }
 
+    @Test
+    public void equalsAndHashTest() throws Exception {
+        EqualsVerifier.forClass(SignalingOptions.class).suppress(Warning.NONFINAL_FIELDS).usingGetClass().verify();
+
+        assertFalse(new SignalingOptions().equals(null));
+    }
 }

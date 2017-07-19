@@ -44,7 +44,6 @@ public class CoapPacket implements Serializable {
     private byte[] payload = new byte[0];
     private final InetSocketAddress remoteAddress;
     private HeaderOptions options = new HeaderOptions();
-    private SignalingOptions signalingOptions = new SignalingOptions();
     private byte[] token = DEFAULT_TOKEN; //opaque
 
     /**
@@ -174,7 +173,7 @@ public class CoapPacket implements Serializable {
 
             //read headers
             options = new HeaderOptions();
-            boolean hasPayloadMarker = options.deserialize(inputStream);
+            boolean hasPayloadMarker = options.deserialize(inputStream, code);
 
             //read payload
             if (hasPayloadMarker) {
@@ -199,24 +198,6 @@ public class CoapPacket implements Serializable {
 
     public void setHeaderOptions(HeaderOptions options) {
         this.options = options;
-    }
-
-    /**
-     * Returns CoAP signaling options instance.
-     *
-     * @return header options instance
-     */
-    public final SignalingOptions signalingOptions() {
-        return signalingOptions;
-    }
-
-    /**
-     * Set CoAP Signaling options
-     *
-     * @param options signaling options instance
-     */
-    public void setSignalingOptions(SignalingOptions options) {
-        this.signalingOptions = options;
     }
 
     /**
@@ -397,16 +378,7 @@ public class CoapPacket implements Serializable {
             tempByte |= token.length & 0xF;                  //Token length
 
             outputStream.write(tempByte);
-            if (code != null && method != null) {
-                throw new IllegalStateException("Forbidden operation: 'code' and 'method' use at a same time");
-            }
-            if (code != null) {
-                outputStream.write(code.getCoapCode());
-            } else if (method != null) {
-                outputStream.write(method.getCode());
-            } else { //no code or method used
-                outputStream.write(0);
-            }
+            writeCode(outputStream, this);
 
             outputStream.write(0xFF & (messageId >> 8));
             outputStream.write(0xFF & messageId);
@@ -425,6 +397,23 @@ public class CoapPacket implements Serializable {
         } catch (IOException iOException) {
             throw new IllegalStateException(iOException.getMessage(), iOException);
         }
+    }
+
+    static Code writeCode(OutputStream os, CoapPacket coapPacket) throws IOException {
+        Code code = coapPacket.getCode();
+        Method method = coapPacket.getMethod();
+
+        if (code != null && method != null) {
+            throw new IllegalStateException("Forbidden operation: 'code' and 'method' use at a same time");
+        }
+        if (code != null) {
+            os.write(code.getCoapCode());
+        } else if (method != null) {
+            os.write(method.getCode());
+        } else { //no code or method used
+            os.write(0);
+        }
+        return code;
     }
 
     /**
@@ -501,7 +490,7 @@ public class CoapPacket implements Serializable {
             sb.append(" Token:0x").append(HexArray.toHex(this.token));
         }
 
-        appendOptions(sb);
+        options.toString(sb);
 
         if (payload != null && payload.length > 0) {
             if (doNotPrintPayload) {
@@ -512,14 +501,6 @@ public class CoapPacket implements Serializable {
         }
 
         return sb.toString();
-    }
-
-    private void appendOptions(StringBuilder sb) {
-        if (code != null && code.isSignaling()) {
-            signalingOptions.toString(sb);
-        } else {
-            options.toString(sb);
-        }
     }
 
     private void payloadToString(boolean printFullPayload, StringBuilder sb, boolean printPayloadOnlyAsHex) {
@@ -561,7 +542,6 @@ public class CoapPacket implements Serializable {
         hash = 41 * hash + Arrays.hashCode(this.payload);
         hash = 41 * hash + Objects.hashCode(this.remoteAddress);
         hash = 41 * hash + Objects.hashCode(this.options);
-        hash = 41 * hash + Objects.hashCode(this.signalingOptions);
         hash = 41 * hash + Arrays.hashCode(this.token);
         return hash;
     }
@@ -597,9 +577,6 @@ public class CoapPacket implements Serializable {
             return false;
         }
         if (!Objects.equals(this.options, other.options)) {
-            return false;
-        }
-        if (!Objects.equals(this.signalingOptions, other.signalingOptions)) {
             return false;
         }
         if (!Arrays.equals(this.token, other.token)) {

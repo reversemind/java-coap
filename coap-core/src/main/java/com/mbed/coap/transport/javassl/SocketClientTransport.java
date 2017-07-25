@@ -101,7 +101,7 @@ public class SocketClientTransport extends BlockingCoapTransport {
         outputStream.flush();
     }
 
-    private CoapPacket deserialize() throws CoapException {
+    private CoapPacket deserialize() throws CoapException, IOException {
         if (isTcpCoapPacket) {
             return CoapTcpPacketSerializer.deserialize(((InetSocketAddress) socket.getRemoteSocketAddress()), inputStream);
         } else {
@@ -110,7 +110,7 @@ public class SocketClientTransport extends BlockingCoapTransport {
     }
 
 
-    private void serialize(CoapPacket coapPacket) throws CoapException {
+    private void serialize(CoapPacket coapPacket) throws CoapException, IOException {
         if (isTcpCoapPacket) {
             CoapTcpPacketSerializer.writeTo(outputStream, coapPacket);
         } else {

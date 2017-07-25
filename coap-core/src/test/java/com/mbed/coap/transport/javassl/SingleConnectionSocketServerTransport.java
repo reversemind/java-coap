@@ -117,7 +117,7 @@ public class SingleConnectionSocketServerTransport extends BlockingCoapTransport
         return (InetSocketAddress) serverSocket.getLocalSocketAddress();
     }
 
-    private CoapPacket deserialize(InputStream inputStream, InetSocketAddress remoteSocketAddress) throws CoapException {
+    private CoapPacket deserialize(InputStream inputStream, InetSocketAddress remoteSocketAddress) throws CoapException, IOException {
         if (isTcpCoapPacket) {
             return CoapTcpPacketSerializer.deserialize(remoteSocketAddress, inputStream);
         } else {
@@ -126,7 +126,7 @@ public class SingleConnectionSocketServerTransport extends BlockingCoapTransport
     }
 
 
-    private void serialize(CoapPacket coapPacket) throws CoapException {
+    private void serialize(CoapPacket coapPacket) throws CoapException, IOException {
         if (isTcpCoapPacket) {
             CoapTcpPacketSerializer.writeTo(outputStream, coapPacket);
         } else {

@@ -15,8 +15,9 @@
  */
 package com.mbed.coap.packet;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.Serializable;
-import java.util.Arrays;
 
 /**
  * This class implements RFC7959 (Block-Wise Transfers in the Constrained Application Protocol)
@@ -26,18 +27,12 @@ import java.util.Arrays;
 public final class BlockOption implements Serializable {
 
     private final int blockNr;
-    private final byte szx;
     private final boolean more;
+    private final BlockSize blockSize;
 
     public BlockOption(int blockNr, BlockSize blockSize, boolean more) {
         this.blockNr = blockNr;
-        this.szx = blockSize.szx;
-        this.more = more;
-    }
-
-    public BlockOption(int blockNr, byte szx, boolean more) {
-        this.blockNr = blockNr;
-        this.szx = szx;
+        this.blockSize = blockSize;
         this.more = more;
     }
 
@@ -45,7 +40,8 @@ public final class BlockOption implements Serializable {
         int bl = DataConvertingUtility.readVariableULong(raw).intValue();
         blockNr = bl >> 4;
         more = (bl & 0x8) != 0;
-        szx = (byte) (bl & 0x7);
+        byte szx = (byte) (bl & 0x07);
+        blockSize = BlockSize.fromRawSzx(szx);
     }
 
     public byte[] toBytes() {
@@ -53,7 +49,7 @@ public final class BlockOption implements Serializable {
         if (more) {
             block |= 1 << 3;
         }
-        block |= szx;
+        block |= blockSize.toRawSzx();
         return DataConvertingUtility.convertVariableUInt(block);
     }
 
@@ -64,15 +60,19 @@ public final class BlockOption implements Serializable {
         return blockNr;
     }
 
-    public byte getSzx() {
-        return szx;
+    public BlockSize getBlockSize() {
+        return blockSize;
+    }
+
+    public boolean isBert() {
+        return blockSize.bert;
     }
 
     /**
      * @return the size
      */
     public int getSize() {
-        return 1 << (szx + 4);
+        return blockSize.getSize();
     }
 
     public boolean hasMore() {
@@ -87,30 +87,27 @@ public final class BlockOption implements Serializable {
      * @return BlockOption
      */
     public BlockOption nextBlock(byte[] fullPayload) {
-        if (fullPayload.length > (blockNr + 2) * getSize()) {
+        return nextBertBlock(fullPayload, 1);
+    }
+
+    public BlockOption nextBertBlock(byte[] fullPayload, int bertBlocksPerMessage) {
+        if (fullPayload.length > (blockNr + bertBlocksPerMessage + 1) * getSize()) {
             //has more
-            return new BlockOption(blockNr + 1, szx, true);
+            return new BlockOption(blockNr + bertBlocksPerMessage, blockSize, true);
         } else {
-            return new BlockOption(blockNr + 1, szx, false);
+            return new BlockOption(blockNr + bertBlocksPerMessage, blockSize, false);
         }
 
     }
 
-    public byte[] appendPayload(byte[] origPayload, byte[] block) {
-        int size = blockNr * getSize() + block.length;
-        byte[] retPayload;
-        if (origPayload.length < size) {
-            //retPayload = new byte[size];
-            retPayload = Arrays.copyOf(origPayload, size);
-        } else {
-            retPayload = origPayload;
+    public int appendPayload(ByteArrayOutputStream origPayload, byte[] block) {
+        try {
+            origPayload.write(block);
+        } catch (IOException e) {
+            // should never happen
+            throw new RuntimeException("Can't append payload to buffer", e);
         }
-        System.arraycopy(block, 0, retPayload, blockNr * getSize(), block.length);
-        //        for (int i=0;i<block.length;i++){
-        //            retPayload[i+blockNr*getSize()] = block[i];
-        //        }
-        //LOGGER.trace("appendPayload() origPayload-len: " + origPayload.length + " block-len: " +block.length + " size: " + size +  " nr: " + blockNr );
-        return retPayload;
+        return block.length / getSize(); // return count of blocks added, needed for BERT
     }
 
     public byte[] createBlockPart(byte[] fullPayload) {
@@ -142,7 +139,7 @@ public final class BlockOption implements Serializable {
             return false;
         }
 
-        return ((BlockOption) obj).szx == this.szx
+        return ((BlockOption) obj).blockSize == this.blockSize
                 && ((BlockOption) obj).blockNr == this.blockNr
                 && ((BlockOption) obj).more == this.more;
     }
@@ -151,7 +148,8 @@ public final class BlockOption implements Serializable {
     public int hashCode() {
         int hash = 3;
         hash = 67 * hash + this.blockNr;
-        hash = 67 * hash + this.szx;
+        hash = 67 * hash + this.blockSize.szx;
+        hash = 67 * hash + (this.blockSize.bert ? 1 : 0);
         hash = 67 * hash + (this.more ? 1 : 0);
         return hash;
     }
@@ -162,6 +160,9 @@ public final class BlockOption implements Serializable {
         sb.append(this.blockNr);
         sb.append('|').append(more ? "more" : "last");
         sb.append('|').append(getSize());
+        if (isBert()) {
+            sb.append('|').append("BERT");
+        }
         return sb.toString();
     }
 }

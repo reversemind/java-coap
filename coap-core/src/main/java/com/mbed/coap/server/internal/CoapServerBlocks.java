@@ -229,6 +229,23 @@ public class CoapServerBlocks extends CoapServerForUdp {
 
         }
 
+        if (reqBlock.hasMore()) {
+            if (!checkIntermediateBlockSize(request, reqBlock)) {
+                createBlockErrorResponse(request, incomingTransContext, Code.C400_BAD_REQUEST, "bl size mismatch")
+                        .sendResponse();
+                removeBlockRequest(blockRequestId);
+                return;
+            }
+        } else {
+            if (!checkLastBlockSize(request, reqBlock)) {
+                createBlockErrorResponse(request, incomingTransContext, Code.C400_BAD_REQUEST, "bl size mismatch")
+                        .sendResponse();
+                removeBlockRequest(blockRequestId);
+                return;
+            }
+        }
+
+
         int appendedBlocksCount = blockRequest.appendBlock(request);
 
         if (!reqBlock.isBert() && appendedBlocksCount > 1) {
@@ -274,6 +291,26 @@ public class CoapServerBlocks extends CoapServerForUdp {
             exchange.getResponse().setToken(request.getToken());
             exchange.sendResponse();
         }
+    }
+
+    private boolean checkIntermediateBlockSize(CoapPacket packet, BlockOption blockHeader) {
+        int payloadSize = packet.getPayload().length;
+
+        int blockSize = blockHeader.getSize();
+
+        if (blockHeader.isBert()) {
+            return payloadSize % blockSize == 0;
+        } else {
+            return payloadSize == blockSize;
+        }
+    }
+
+    private boolean checkLastBlockSize(CoapPacket packet, BlockOption blockOption) {
+        int payloadSize = packet.getPayload().length;
+        if (!blockOption.isBert()) {
+            return payloadSize <= blockOption.getSize();
+        }
+        return true; // BERT last block size is always valid within max message size
     }
 
     private CoapExchangeImpl createBlockErrorResponse(CoapPacket request, TransportContext transContext, Code responseCode, String bodyMessage) {

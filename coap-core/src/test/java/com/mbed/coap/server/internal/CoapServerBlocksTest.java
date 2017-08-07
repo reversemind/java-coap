@@ -15,6 +15,7 @@
  */
 package com.mbed.coap.server.internal;
 
+import static org.junit.Assert.*;
 import static org.mockito.BDDMockito.*;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
@@ -32,8 +33,10 @@ import com.mbed.coap.transport.CoapTransport;
 import com.mbed.coap.transport.TransportContext;
 import com.mbed.coap.utils.Callback;
 import com.mbed.coap.utils.ReadOnlyCoapResource;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import nl.jqno.equalsverifier.EqualsVerifier;
@@ -111,6 +114,27 @@ public class CoapServerBlocksTest {
     }
 
     @Test
+    public void block1_incorrectIntermediateBlockSize() throws CoapException, IOException {
+        server.init(10, coapTransport, scheduledExecutor, false, midSupplier, 1, CoapTransaction.Priority.NORMAL, 0, blockSize, 120000, DuplicatedCoapMessageCallback.NULL);
+
+        server.addRequestHandler("/block", exchange -> {
+            fail("Should not receive exchange");
+        });
+
+        //block 1
+        receive(newCoapPacket(LOCAL_5683).mid(1).put().block1Req(0, BlockSize.S_16, true).size1(20).uriPath("/block").payload("123456789012345|"));
+        assertSent(newCoapPacket(LOCAL_5683).mid(1).ack(Code.C231_CONTINUE).block1Req(0, BlockSize.S_16, true));
+
+        //block 2 - broken
+        receive(newCoapPacket(LOCAL_5683).mid(2).put().block1Req(1, BlockSize.S_16, true).uriPath("/block").payload("abcd"));
+        assertSent(newCoapPacket(LOCAL_5683).mid(2).ack(Code.C400_BAD_REQUEST).block1Req(1, BlockSize.S_16, true).payload("bl size mismatch"));
+
+        //block 3 - should fail because no such transaction
+        receive(newCoapPacket(LOCAL_5683).mid(3).put().block1Req(2, BlockSize.S_16, false).uriPath("/block").payload("abcd"));
+        assertSent(newCoapPacket(LOCAL_5683).mid(3).ack(Code.C408_REQUEST_ENTITY_INCOMPLETE).block1Req(2, BlockSize.S_16, false));
+    }
+
+    @Test
     public void block1_request_failAfterTokenMismatch() throws Exception {
         server.init(10, coapTransport, scheduledExecutor, false, midSupplier, 1, CoapTransaction.Priority.NORMAL, 0, blockSize, 120000, DuplicatedCoapMessageCallback.NULL);
 
@@ -124,6 +148,83 @@ public class CoapServerBlocksTest {
         receive(newCoapPacket(LOCAL_5683).mid(2).token(999).put().block1Req(1, BlockSize.S_16, false).uriPath("/block").payload("abcd"));
         assertSent(newCoapPacket(LOCAL_5683).mid(2).token(999).ack(Code.C408_REQUEST_ENTITY_INCOMPLETE).block1Req(1, BlockSize.S_16, false).payload("Token mismatch"));
     }
+
+    @Test
+    public void block1_request_BERT_multiblock() throws Exception {
+        server.init(10, coapTransport, scheduledExecutor, false, midSupplier, 1, CoapTransaction.Priority.NORMAL, 0, BlockSize.S_1024_BERT, 120000, DuplicatedCoapMessageCallback.NULL);
+
+        byte[] payloadBlock1 = generatePayload(0, 4096).toByteArray();
+        byte[] payloadBlock2 = generatePayload(4, 2048).toByteArray();
+        ByteArrayOutputStream payloadBlockFinalOs = generatePayload(6, 1024);
+        payloadBlockFinalOs.write("end_of_payload".getBytes());
+        byte[] payloadFinal = payloadBlockFinalOs.toByteArray();
+
+        final ByteArrayOutputStream fullPayload = new ByteArrayOutputStream(payloadBlock1.length + payloadBlock2.length + payloadFinal.length);
+        fullPayload.write(payloadBlock1);
+        fullPayload.write(payloadBlock2);
+        fullPayload.write(payloadFinal);
+
+        server.addRequestHandler("/block", exchange -> {
+            if (Arrays.equals(exchange.getRequestBody(), fullPayload.toByteArray())) {
+                exchange.setResponseCode(Code.C204_CHANGED);
+                exchange.sendResponse();
+            } else {
+                exchange.sendResetResponse();
+            }
+        });
+
+        CoapPacket pkt = newCoapPacket(LOCAL_5683).mid(10).token(0x1234).put().block1Req(0, BlockSize.S_1024_BERT, true).uriPath("/block").build();
+        pkt.setPayload(payloadBlock1);
+        receive(pkt);
+        assertSent(newCoapPacket(LOCAL_5683).mid(10).token(0x1234).ack(Code.C231_CONTINUE).block1Req(0, BlockSize.S_1024_BERT, true));
+
+        pkt = newCoapPacket(LOCAL_5683).mid(11).token(0x1234).put().block1Req(4, BlockSize.S_1024_BERT, true).uriPath("/block").build();
+        pkt.setPayload(payloadBlock2);
+        receive(pkt);
+        assertSent(newCoapPacket(LOCAL_5683).mid(11).token(0x1234).ack(Code.C231_CONTINUE).block1Req(4, BlockSize.S_1024_BERT, true));
+
+        pkt = newCoapPacket(LOCAL_5683).mid(12).token(0x1234).put().block1Req(6, BlockSize.S_1024_BERT, false).uriPath("/block").build();
+        pkt.setPayload(payloadFinal);
+        receive(pkt);
+        assertSent(newCoapPacket(LOCAL_5683).mid(12).token(0x1234).ack(Code.C204_CHANGED).block1Req(6, BlockSize.S_1024_BERT, false));
+    }
+
+    @Test
+    public void block1_BERT_incorrectIntermediateBlockSize() throws Exception {
+        server.init(10, coapTransport, scheduledExecutor, false, midSupplier, 1, CoapTransaction.Priority.NORMAL, 0, BlockSize.S_1024_BERT, 120000, DuplicatedCoapMessageCallback.NULL);
+
+        byte[] payloadBlock1 = generatePayload(0, 4096).toByteArray();
+
+        ByteArrayOutputStream payloadBlock2BrokenOs = generatePayload(4, 2048);
+        payloadBlock2BrokenOs.write("wrong pl interm block".getBytes());
+        byte[] payloadBlock2Broken = payloadBlock2BrokenOs.toByteArray();
+
+        ByteArrayOutputStream payloadBlockFinalOs = generatePayload(6, 1024);
+        payloadBlockFinalOs.write("end_of_payload".getBytes());
+        byte[] payloadFinal = payloadBlockFinalOs.toByteArray();
+
+        server.addRequestHandler("/block", exchange -> {
+            fail("Unexpected request was received");
+        });
+
+        CoapPacket pkt = newCoapPacket(LOCAL_5683).mid(10).token(0x1234).put().block1Req(0, BlockSize.S_1024_BERT, true).uriPath("/block").build();
+        pkt.setPayload(payloadBlock1);
+        receive(pkt);
+        assertSent(newCoapPacket(LOCAL_5683).mid(10).token(0x1234).ack(Code.C231_CONTINUE).block1Req(0, BlockSize.S_1024_BERT, true));
+
+        pkt = newCoapPacket(LOCAL_5683).mid(11).token(0x1234).put().block1Req(4, BlockSize.S_1024_BERT, true).uriPath("/block").build();
+        pkt.setPayload(payloadBlock2Broken);
+        receive(pkt);
+        assertSent(newCoapPacket(LOCAL_5683).mid(11).token(0x1234).ack(Code.C400_BAD_REQUEST).block1Req(4, BlockSize.S_1024_BERT, true).payload("bl size mismatch"));
+
+        // fail unknown block, we don't have such transaction (just removed because of error)
+
+        pkt = newCoapPacket(LOCAL_5683).mid(12).token(0x1234).put().block1Req(6, BlockSize.S_1024_BERT, false).uriPath("/block").build();
+        pkt.setPayload(payloadFinal);
+        receive(pkt);
+        assertSent(newCoapPacket(LOCAL_5683).mid(12).token(0x1234).ack(Code.C408_REQUEST_ENTITY_INCOMPLETE).block1Req(6, BlockSize.S_1024_BERT, false));
+    }
+
 
     @Test
     public void equalsAndHashTest() throws Exception {
@@ -143,5 +244,19 @@ public class CoapServerBlocksTest {
 
     private void assertSent(CoapPacketBuilder coapPacketBuilder) throws CoapException, IOException {
         verify(coapTransport).sendPacket(eq(coapPacketBuilder.build()), any(), any());
+    }
+
+    private ByteArrayOutputStream generatePayload(int startBlockNumber, int size16bRound) throws Exception {
+        if (size16bRound % 16 != 0) {
+            throw new Exception("Size should be 16 bytes blocks");
+        }
+        ByteArrayOutputStream bos = new ByteArrayOutputStream(size16bRound + 32);
+
+        int blocks = size16bRound / 16;
+
+        for (int i = 0; i < blocks; i++) {
+            bos.write(String.format("%03d_456789ABCDE|", i + startBlockNumber).getBytes());
+        }
+        return bos;
     }
 }

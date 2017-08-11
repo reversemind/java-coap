@@ -45,7 +45,7 @@ public class CoapTcpCSM {
         return new CoapTcpCSM(newMaxSize, newBlockWise);
     }
 
-    public boolean isBlockwiseTransfer() {
+    public boolean isBlockTransferEnabled() {
         return blockwiseTransfer;
     }
 

@@ -136,7 +136,7 @@ public class CoapServerForTcp extends CoapServer implements CoapReceiverForTcp {
     }
 
     private boolean isBlockTransferSupported(InetSocketAddress address) {
-        return csmStorage.getOrDefault(address).isBlockwiseTransfer();
+        return csmStorage.getOrDefault(address).isBlockTransferEnabled();
     }
 
     @Override
@@ -174,15 +174,14 @@ public class CoapServerForTcp extends CoapServer implements CoapReceiverForTcp {
     }
 
     @Override
-    public final BlockSize getBlockSize() {
-        return blockOptionSize;
-    }
+    public BlockSize getBlockSize(InetSocketAddress remoteAddress) {
+        CoapTcpCSM capabilities = csmStorage.getOrDefault(remoteAddress);
 
-    public BlockSize getBlockSize(InetSocketAddress address) {
-        CoapTcpCSM capabilities = csmStorage.getOrDefault(address);
         if (capabilities.isBERTEnabled()) {
             return BlockSize.S_1024_BERT;
-        } else if (capabilities.isBlockwiseTransfer()) {
+        }
+
+        if (capabilities.isBlockTransferEnabled()) {
             long maxMessageSize = capabilities.getMaxMessageSize();
 
             for (BlockSize blockSize : reversedBlockSizes) {

@@ -67,6 +67,8 @@ public abstract class CoapServerForUdp extends CoapServer {
     protected long delayedTransactionTimeout;
     protected TransmissionTimeout transmissionTimeout;
     protected DuplicatedCoapMessageCallback duplicatedCoapMessageCallback;
+    private CoapTransaction.Priority blockCoapTransactionPriority = CoapTransaction.Priority.HIGH;
+
 
 
     public static CoapServerBuilder builder() {
@@ -119,6 +121,10 @@ public abstract class CoapServerForUdp extends CoapServer {
         return this;
     }
 
+    public void setBlockCoapTransactionPriority(CoapTransaction.Priority blockCoapTransactionPriority) {
+        this.blockCoapTransactionPriority = blockCoapTransactionPriority;
+    }
+
     private void startTransactionTimeoutWorker() {
         transactionTimeoutWorkerFut = scheduledExecutor.scheduleWithFixedDelay(this::resendTimeouts,
                 0, TRANSACTION_TIMEOUT_DELAY, TimeUnit.MILLISECONDS);
@@ -161,7 +167,7 @@ public abstract class CoapServerForUdp extends CoapServer {
 
 
     @Override
-    public final BlockSize getBlockSize() {
+    public final BlockSize getBlockSize(InetSocketAddress remoteAddress) {
         return blockOptionSize;
     }
 
@@ -224,7 +230,7 @@ public abstract class CoapServerForUdp extends CoapServer {
      * @param transactionPriority defines transaction priority (used by CoapServerBlocks mostyl)
      * @param forceAddToQueue forces add to queue even if there is queue limit overflow (block requests)
      */
-    void makeRequestInternal(final CoapPacket packet, final Callback<CoapPacket> coapCallback, final TransportContext transContext, CoapTransaction.Priority transactionPriority, boolean forceAddToQueue) {
+    private void makeRequestInternal(final CoapPacket packet, final Callback<CoapPacket> coapCallback, final TransportContext transContext, CoapTransaction.Priority transactionPriority, boolean forceAddToQueue) {
         if (packet == null || packet.getRemoteAddress() == null) {
             throw new NullPointerException();
         }
@@ -260,6 +266,10 @@ public abstract class CoapServerForUdp extends CoapServer {
             }
         }
 
+    }
+
+    protected void makeRequestBlock(final CoapPacket packet, final Callback<CoapPacket> callback, final TransportContext transContext) {
+        makeRequestInternal(packet, callback, transContext, blockCoapTransactionPriority, true);
     }
 
     CompletableFuture<Boolean> send(CoapPacket coapPacket, InetSocketAddress adr, TransportContext tranContext) {

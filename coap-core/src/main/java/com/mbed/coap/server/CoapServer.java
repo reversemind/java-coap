@@ -138,11 +138,11 @@ public abstract class CoapServer implements CoapReceiver {
     }
 
     /**
-     * Returns defines block size
+     * Returns defines block size (per endpoint if applicable)
      *
-     * @return block size
+     * @return block size per endpoint (if applicable) or generic setting for server or null if block transfers are not supported
      */
-    abstract public BlockSize getBlockSize();
+    abstract public BlockSize getBlockSize(InetSocketAddress remoteAddress);
 
     /**
      * Returns socket address that this server is binding on

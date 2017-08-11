@@ -87,17 +87,30 @@ public final class BlockOption implements Serializable {
      * @return BlockOption
      */
     public BlockOption nextBlock(byte[] fullPayload) {
-        return nextBertBlock(fullPayload, 1);
+        return nextBertBlock(fullPayload, 1, getSize());
     }
 
-    public BlockOption nextBertBlock(byte[] fullPayload, int bertBlocksPerMessage) {
-        if (fullPayload.length > (blockNr + bertBlocksPerMessage + 1) * getSize()) {
-            //has more
-            return new BlockOption(blockNr + bertBlocksPerMessage, blockSize, true);
-        } else {
-            return new BlockOption(blockNr + bertBlocksPerMessage, blockSize, false);
-        }
+    /**
+     * Creates next block option
+     *
+     * @param fullPayload - full payload to be sent through block transfer
+     * @param lastBlocksCountPerMessage - number of BERT 1k sub-blocks in last sent block
+     * @param maxPayloadSizePerBlock - max payload size per BERT block
+     * @return nex block option instance
+     */
+    public BlockOption nextBertBlock(byte[] fullPayload, int lastBlocksCountPerMessage, int maxPayloadSizePerBlock) {
 
+        int nextBlockNumber = blockNr + (isBert()
+                ? lastBlocksCountPerMessage
+                : 1);
+        int nextPayloadPos = nextBlockNumber * getSize();
+        int leftPayload = fullPayload.length - nextPayloadPos;
+
+        boolean newHasMore = isBert()
+                ? leftPayload > maxPayloadSizePerBlock
+                : leftPayload > getSize();
+
+        return new BlockOption(nextBlockNumber, blockSize, newHasMore);
     }
 
     public int appendPayload(ByteArrayOutputStream origPayload, byte[] block) {
@@ -110,24 +123,39 @@ public final class BlockOption implements Serializable {
         return block.length / getSize(); // return count of blocks added, needed for BERT
     }
 
-    public byte[] createBlockPart(byte[] fullPayload) {
+    /**
+     * Creates new block, saves it into outputBlock and retuns count of block put to the payload according
+     * to maxPayloadSizePerBlock
+     *
+     * @param fullPayload - full payload from which block will be created
+     * @param outputBlock - outputStream where block will be saved
+     * @param maxPayloadSizePerBlock - maximum payload size (mostly for BERT blocks)
+     * @return
+     */
+    public int createBlockPart(byte[] fullPayload, ByteArrayOutputStream outputBlock, int maxPayloadSizePerBlock) {
         //block size 16
         //b0: 0 - 15
         //b1: 16 - 31
 
+        int blocksCount = isBert()
+                ? maxPayloadSizePerBlock / getSize()
+                : 1;
+
         int startPos = blockNr * getSize();
         if (startPos > fullPayload.length - 1) {
-            //payload to small
-            return null;
+            //payload too small
+            return 0;
         }
-        int len = getSize();
+        // maxPayloadSize is not used to round len to blockSize
+        // by default, maxPayloadSizePerBlock usually should be rounded to n*blockSize
+        int len = getSize() * blocksCount;
         if (startPos + len > fullPayload.length) {
             len = fullPayload.length - startPos;
+            assert !hasMore();
         }
-        byte[] nwPayload = new byte[len];
-        System.arraycopy(fullPayload, startPos, nwPayload, 0, len);
-        //LOGGER.trace("createBlockPart() payload-len: " + fullPayload.length + " start: " +startPos + " len: " + len);
-        return nwPayload;
+        outputBlock.write(fullPayload, startPos, len);
+
+        return blocksCount;
     }
 
     @Override
@@ -139,7 +167,7 @@ public final class BlockOption implements Serializable {
             return false;
         }
 
-        return ((BlockOption) obj).blockSize == this.blockSize
+        return ((BlockOption) obj).blockSize == this.blockSize // enum value comparison
                 && ((BlockOption) obj).blockNr == this.blockNr
                 && ((BlockOption) obj).more == this.more;
     }
